@@ -1,123 +1,164 @@
 # WHOOP MCP Server
 
-WHOOP MCP Server exposes WHOOP recovery, sleep, strain, and workout metrics to MCP-compatible AI assistants. It mirrors the local Garmin MCP server workflow: run a one-time login, cache tokens locally, build the TypeScript server, and connect it to an MCP client over stdio.
+WHOOP MCP Server is a TypeScript Model Context Protocol (MCP) server that gives MCP-compatible assistants access to personal WHOOP recovery, sleep, strain, and workout data.
 
-## Capabilities
+The server runs locally over stdio. It authenticates with WHOOP through OAuth 2.0, stores reusable tokens on disk, refreshes tokens when needed, and exposes structured tools that assistants can use for workload planning and recovery-aware context.
 
-- Fetch daily WHOOP wellbeing snapshots
-- Summarize recovery score, HRV, resting heart rate, SpO2, skin temperature, sleep performance, sleep stages, day strain, and workouts
-- Analyze short-term versus long-term recovery trends
-- Compute personal baseline ranges over historical windows
-- Highlight meaningful changes versus yesterday and baseline
-- Recommend an appropriate workload level from current recovery signals
-- Cache and refresh WHOOP OAuth tokens locally
+## Features
 
-## MCP Tools
+- Daily WHOOP recovery, sleep, cycle strain, and workout snapshots
+- Sleep-stage and sleep-performance summaries
+- Recovery score, HRV, resting heart rate, SpO2, and skin temperature summaries
+- Short-window versus long-window trend analysis
+- Historical baseline profiles
+- Change alerts versus yesterday and personal baseline
+- Workload guardrails based on recovery signals
+- Local OAuth token cache with refresh-token support
 
-| Tool | Description |
-| --- | --- |
-| `whoop_training_load_trend` | Returns 7-day versus 28-day trends for sleep, sleep performance, recovery, HRV, resting heart rate, and day strain. |
-| `whoop_baseline_profile` | Computes personal baseline ranges for WHOOP recovery metrics over a historical window. |
-| `whoop_change_alerts` | Highlights meaningful daily changes such as sleep drops, recovery dips, HRV dips, and resting heart rate spikes. |
-| `whoop_wellbeing_snapshot` | Returns a concise daily snapshot with recovery metrics and workload recommendation. |
-| `whoop_workload_guard` | Evaluates a proposed workload against current WHOOP recovery signals. |
-| `whoop_sleep_summary` | Returns focused sleep and recovery context for a given date. |
+## Requirements
 
-## Installation
+- Node.js 20 or newer
+- npm
+- A WHOOP account
+- A WHOOP Developer Dashboard app
 
-```powershell
-npm install
-```
-
-## Authentication
-
-WHOOP uses OAuth 2.0 Authorization Code flow. It cannot log in with a WHOOP email and password from the terminal the way Garmin can. For WHOOP, you first create a small app in the WHOOP Developer Dashboard, then this project opens the browser login and stores reusable local tokens.
-
-For a non-programmer setup, use the terminal wizard:
-
-```powershell
-npm run setup
-```
-
-`npm run login` does the same thing.
-
-Before running it, create an app at:
+Create the WHOOP app at:
 
 ```text
 https://developer-dashboard.whoop.com
 ```
 
-In that WHOOP app:
-
-1. Copy the Client ID.
-2. Copy the Client Secret.
-3. Add this redirect URI:
+The app must have a redirect URI registered. The default used by this project is:
 
 ```text
 whoop://mcp/callback
 ```
 
-Then run `npm run setup` and paste what the wizard asks for.
+## Quick Start
 
-WHOOP's public docs describe redirect URLs in the form `https://...` or `whoop://...`. For custom-scheme redirects like the default above, the login command asks you to paste the final redirected URL from the browser after approval. If your WHOOP app accepts a loopback URI such as `http://127.0.0.1:8787/callback`, the login command can capture the code automatically with its temporary local callback server.
+Install dependencies:
 
-The setup command:
+```powershell
+npm install
+```
 
-1. Prompts for your WHOOP Client ID.
-2. Prompts for your WHOOP Client Secret without echoing it to the terminal.
-3. Prompts for redirect URI, token cache folder, and OAuth scopes with sensible defaults.
-4. Opens the WHOOP authorization page.
-5. Exchanges the authorization code for access and refresh tokens.
-6. Writes reusable tokens to `.whoop-tokens/tokens.json` by default.
-7. Offers to save the MCP refresh settings into local `.env`.
+Run the setup wizard:
 
-The local `.env` file is ignored by git. Saving it is recommended for local use because the MCP server needs `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` when refreshing tokens.
+```powershell
+npm run setup
+```
 
-After setup, build the server:
+The wizard asks for:
+
+- WHOOP Client ID
+- WHOOP Client Secret
+- Redirect URI
+- Token cache folder
+- OAuth scopes
+
+It then opens the WHOOP authorization page in your browser, exchanges the authorization code for tokens, writes the token cache, and offers to create a local `.env` file.
+
+Build the MCP server:
 
 ```powershell
 npm run build
 ```
 
-## Environment Variables
+## Authentication
 
-The setup wizard can create `.env` for you. Create or edit it manually only if you want to customize settings:
+WHOOP uses OAuth 2.0 Authorization Code flow for API access. This project does not collect or store your WHOOP username or password.
 
-```powershell
-Copy-Item .env.example .env
+The setup wizard stores API tokens in:
+
+```text
+.whoop-tokens/tokens.json
 ```
 
-Supported variables:
+By default it also offers to write local MCP settings to:
 
-| Variable | Purpose |
-| --- | --- |
-| `WHOOP_CLIENT_ID` | OAuth Client ID from the WHOOP Developer Dashboard. Required for login and token refresh. |
-| `WHOOP_CLIENT_SECRET` | OAuth Client Secret from the WHOOP Developer Dashboard. Required for login and token refresh. |
-| `WHOOP_REDIRECT_URI` | Registered OAuth redirect URI. Defaults to `whoop://mcp/callback`. |
-| `WHOOP_TOKEN_DIR` | Directory used to read/write WHOOP OAuth tokens. Defaults to `.whoop-tokens`. |
-| `WHOOP_SCOPES` | Space- or comma-separated OAuth scopes. Defaults to profile, body measurement, recovery, cycles, sleep, workout, and offline. |
+```text
+.env
+```
 
-Default scopes:
+Both `.env` and `.whoop-tokens/` are ignored by git.
+
+The default OAuth scopes are:
 
 ```text
 read:profile read:body_measurement read:recovery read:cycles read:sleep read:workout offline
 ```
 
-The `offline` scope is important because WHOOP only returns a refresh token when that scope is requested.
+The `offline` scope is required for refresh-token support. Without it, the server may require a new browser login when the access token expires.
 
-## Verify Locally
+### Redirect URI Behavior
 
-After logging in and building, run:
+WHOOP supports redirect URLs such as `https://...` and custom schemes such as `whoop://...`.
+
+With the default `whoop://mcp/callback` redirect, the setup wizard asks you to paste the final redirected URL from the browser after approving access. If your WHOOP app is configured with a loopback redirect such as `http://127.0.0.1:8787/callback`, the wizard can capture the callback automatically with a temporary local HTTP server.
+
+## MCP Tools
+
+| Tool | Description |
+| --- | --- |
+| `whoop_wellbeing_snapshot` | Returns recovery, sleep, cycle strain, workouts, and a workload recommendation for a date. |
+| `whoop_sleep_summary` | Returns sleep-stage, sleep-performance, recovery, HRV, and resting-heart-rate context. |
+| `whoop_training_load_trend` | Compares short-window and long-window trends for sleep, recovery, HRV, resting heart rate, and day strain. |
+| `whoop_baseline_profile` | Computes baseline ranges over a historical window. |
+| `whoop_change_alerts` | Highlights meaningful changes versus yesterday and baseline. |
+| `whoop_workload_guard` | Evaluates a proposed workload against current recovery signals. |
+
+## MCP Resource
+
+| Resource | Description |
+| --- | --- |
+| `whoop://wellbeing/today` | Today's WHOOP wellbeing snapshot as JSON. |
+
+## MCP Prompt
+
+| Prompt | Description |
+| --- | --- |
+| `whoop_workload_guardrails` | Guidance for using WHOOP data during workload planning without treating it as medical advice. |
+
+## Configuration
+
+The setup wizard can create `.env` automatically. You can also create it manually:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Supported environment variables:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `WHOOP_CLIENT_ID` | Yes | OAuth Client ID from the WHOOP Developer Dashboard. |
+| `WHOOP_CLIENT_SECRET` | Yes | OAuth Client Secret from the WHOOP Developer Dashboard. |
+| `WHOOP_REDIRECT_URI` | Yes | Registered OAuth redirect URI. Defaults to `whoop://mcp/callback`. |
+| `WHOOP_TOKEN_DIR` | Yes | Directory used to read and write WHOOP OAuth tokens. Defaults to `.whoop-tokens`. |
+| `WHOOP_SCOPES` | No | Space- or comma-separated OAuth scopes. Defaults to the scopes listed above. |
+
+Use an absolute `WHOOP_TOKEN_DIR` when configuring an MCP client. MCP clients often start servers from a different working directory, and an absolute path avoids token-cache lookup problems.
+
+## Running Locally
+
+Validate the project:
 
 ```powershell
 npm run typecheck
 npm run build
+```
+
+Start the MCP server:
+
+```powershell
 npm run start
 ```
 
-`npm run start` launches the MCP server over stdio. It will wait for an MCP client to speak the protocol, so it may appear idle in a normal terminal.
+The server communicates over stdio, so it will appear idle in a normal terminal until an MCP client connects.
 
-## Codex Configuration Example
+## Codex Configuration
+
+Example Codex MCP configuration:
 
 ```toml
 [mcp_servers.whoop]
@@ -127,29 +168,70 @@ args = ["C:\\path\\to\\whoop-mcp-server\\dist\\index.js"]
 [mcp_servers.whoop.env]
 WHOOP_CLIENT_ID = "your-client-id"
 WHOOP_CLIENT_SECRET = "your-client-secret"
+WHOOP_REDIRECT_URI = "whoop://mcp/callback"
 WHOOP_TOKEN_DIR = "C:\\path\\to\\whoop-mcp-server\\.whoop-tokens"
 ```
 
-Restart Codex after updating the config. Once loaded, the WHOOP tools should be available as MCP tools.
+Restart Codex after updating the configuration.
+
+## Claude Desktop Configuration
+
+Example Claude Desktop MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "whoop": {
+      "command": "node",
+      "args": ["C:\\path\\to\\whoop-mcp-server\\dist\\index.js"],
+      "env": {
+        "WHOOP_CLIENT_ID": "your-client-id",
+        "WHOOP_CLIENT_SECRET": "your-client-secret",
+        "WHOOP_REDIRECT_URI": "whoop://mcp/callback",
+        "WHOOP_TOKEN_DIR": "C:\\path\\to\\whoop-mcp-server\\.whoop-tokens"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after updating the configuration.
 
 ## Troubleshooting
 
-If login fails:
+If setup fails:
 
 - Confirm the Client ID and Client Secret are copied from the WHOOP Developer Dashboard.
-- Confirm the redirect URI in your terminal exactly matches a redirect URI registered on the WHOOP app.
-- Confirm the requested scopes are enabled on the app.
-- Delete `.whoop-tokens` and run `npm run login` again if tokens become stale.
+- Confirm the redirect URI entered in the terminal exactly matches a redirect URI registered on the WHOOP app.
+- Confirm the app has access to the requested scopes.
+- Delete `.whoop-tokens/` and run `npm run setup` again if tokens are stale.
 
 If the MCP client cannot fetch WHOOP data:
 
-- Confirm `npm run build` has been run and `dist\\index.js` exists.
-- Use an absolute `WHOOP_TOKEN_DIR` in the MCP client config.
-- Include `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` in the MCP client env so refreshes work.
-- Restart the MCP client after config changes.
+- Confirm `npm run build` completed successfully.
+- Confirm `dist/index.js` exists.
+- Use an absolute `WHOOP_TOKEN_DIR` in the MCP client configuration.
+- Include `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` in the MCP client environment so token refresh can work.
+- Restart the MCP client after changing configuration.
+
+If token refresh fails:
+
+- Confirm `WHOOP_SCOPES` includes `offline`.
+- Run `npm run setup` again to create a fresh token cache.
+- Avoid running multiple server instances against the same token cache at the same time. WHOOP refresh tokens can rotate, and concurrent refreshes may invalidate one instance's cached token.
 
 ## Security
 
-- Do not commit `.env` or `.whoop-tokens`.
-- Treat WHOOP data as private health-related context.
-- WHOOP refresh tokens rotate. If two server instances refresh at the same time, one may invalidate the other's token cache.
+- Do not commit `.env` or `.whoop-tokens/`.
+- Treat WHOOP data as private health-related information.
+- Keep the WHOOP Client Secret local to trusted machines.
+- Revoke the WHOOP app or delete the token cache if a machine is lost or no longer trusted.
+
+## Development
+
+```powershell
+npm run dev
+npm run setup
+npm run typecheck
+npm run build
+```
