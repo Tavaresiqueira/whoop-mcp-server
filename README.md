@@ -27,41 +27,61 @@ WHOOP MCP Server exposes WHOOP recovery, sleep, strain, and workout metrics to M
 
 ```powershell
 npm install
-npm run build
 ```
 
 ## Authentication
 
-WHOOP uses OAuth 2.0 Authorization Code flow. Create an app in the WHOOP Developer Dashboard, add a redirect URI, then run:
+WHOOP uses OAuth 2.0 Authorization Code flow. It cannot log in with a WHOOP email and password from the terminal the way Garmin can. For WHOOP, you first create a small app in the WHOOP Developer Dashboard, then this project opens the browser login and stores reusable local tokens.
+
+For a non-programmer setup, use the terminal wizard:
 
 ```powershell
-npm run login
+npm run setup
 ```
 
-The default redirect URI is:
+`npm run login` does the same thing.
+
+Before running it, create an app at:
+
+```text
+https://developer-dashboard.whoop.com
+```
+
+In that WHOOP app:
+
+1. Copy the Client ID.
+2. Copy the Client Secret.
+3. Add this redirect URI:
 
 ```text
 whoop://mcp/callback
 ```
 
-Add that exact URI to your WHOOP Developer Dashboard app, or set `WHOOP_REDIRECT_URI` to another registered URI before logging in.
+Then run `npm run setup` and paste what the wizard asks for.
 
 WHOOP's public docs describe redirect URLs in the form `https://...` or `whoop://...`. For custom-scheme redirects like the default above, the login command asks you to paste the final redirected URL from the browser after approval. If your WHOOP app accepts a loopback URI such as `http://127.0.0.1:8787/callback`, the login command can capture the code automatically with its temporary local callback server.
 
-The login command:
+The setup command:
 
 1. Prompts for your WHOOP Client ID.
 2. Prompts for your WHOOP Client Secret without echoing it to the terminal.
-3. Starts a temporary local callback server.
+3. Prompts for redirect URI, token cache folder, and OAuth scopes with sensible defaults.
 4. Opens the WHOOP authorization page.
 5. Exchanges the authorization code for access and refresh tokens.
 6. Writes reusable tokens to `.whoop-tokens/tokens.json` by default.
+7. Offers to save the MCP refresh settings into local `.env`.
 
-Your Client Secret is used only for the token exchange unless you also store it in `.env` or MCP client config. The MCP server needs `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` when refreshing tokens.
+The local `.env` file is ignored by git. Saving it is recommended for local use because the MCP server needs `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` when refreshing tokens.
+
+After setup, build the server:
+
+```powershell
+npm run build
+```
 
 ## Environment Variables
 
-Create a local environment file only if you want to customize settings:
+The setup wizard can create `.env` for you. Create or edit it manually only if you want to customize settings:
 
 ```powershell
 Copy-Item .env.example .env

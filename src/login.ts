@@ -14,6 +14,13 @@ import { loadConfig } from "./config.js";
 import { exchangeToken, type TokenSet } from "./whoop-client.js";
 
 const AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
+const WHOOP_ENV_KEYS = new Set([
+  "WHOOP_CLIENT_ID",
+  "WHOOP_CLIENT_SECRET",
+  "WHOOP_REDIRECT_URI",
+  "WHOOP_TOKEN_DIR",
+  "WHOOP_SCOPES",
+]);
 
 async function promptVisible(question: string, defaultValue?: string): Promise<string> {
   const rl = readline.createInterface({ input, output });
@@ -24,11 +31,8 @@ async function promptVisible(question: string, defaultValue?: string): Promise<s
 }
 
 async function promptPassword(question: string, defaultValue?: string): Promise<string> {
-  if (defaultValue) {
-    return defaultValue;
-  }
-
-  output.write(`${question}: `);
+  const suffix = defaultValue ? " (already configured, press Enter to keep)" : "";
+  output.write(`${question}${suffix}: `);
   input.setRawMode?.(true);
   input.resume();
   input.setEncoding("utf8");
@@ -53,7 +57,7 @@ async function promptPassword(question: string, defaultValue?: string): Promise<
       if (char === "\r" || char === "\n") {
         cleanup();
         output.write("\n");
-        resolve(value);
+        resolve(value || defaultValue || "");
         return;
       }
 
@@ -67,6 +71,17 @@ async function promptPassword(question: string, defaultValue?: string): Promise<
 
     input.on("data", onData);
   });
+}
+
+async function promptYesNo(question: string, defaultValue: boolean): Promise<boolean> {
+  const defaultLabel = defaultValue ? "Y/n" : "y/N";
+  const answer = (await promptVisible(`${question} (${defaultLabel})`)).toLowerCase();
+
+  if (!answer) {
+    return defaultValue;
+  }
+
+  return ["y", "yes", "true", "1"].includes(answer);
 }
 
 function openBrowser(url: string): void {
@@ -182,23 +197,54 @@ function writeTokens(tokenDir: string, tokens: TokenSet): string {
   return tokenPath;
 }
 
+function envLine(key: string, value: string): string {
+  return `${key}=${JSON.stringify(value)}`;
+}
+
+function writeLocalEnv(values: Record<string, string>): string {
+  const envPath = path.resolve(".env");
+  const existingLines = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8").split(/\r?\n/) : [];
+  const preservedLines = existingLines.filter((line) => {
+    const match = line.match(/^([A-Z0-9_]+)\s*=/);
+    return !match || !WHOOP_ENV_KEYS.has(match[1]);
+  });
+
+  const nextLines = [
+    ...preservedLines.filter((line) => line.trim().length > 0),
+    "# WHOOP MCP local settings. This file is ignored by git.",
+    ...Object.entries(values).map(([key, value]) => envLine(key, value)),
+    "",
+  ];
+
+  fs.writeFileSync(envPath, nextLines.join("\n"));
+  return envPath;
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
 
-  console.log("WHOOP MCP login");
-  console.log("This starts a local OAuth callback server and creates a reusable token cache.");
+  console.log("WHOOP MCP setup");
+  console.log("WHOOP does not support password login for third-party apps.");
+  console.log("This wizard uses WHOOP's browser OAuth flow and saves local settings for the MCP server.");
+  console.log("");
+  console.log("Before continuing, create an app at https://developer-dashboard.whoop.com");
+  console.log("Copy the app's Client ID and Client Secret, and add this redirect URI to the app:");
+  console.log(`  ${config.redirectUri}`);
   console.log("");
 
   const clientId = await promptVisible("WHOOP Client ID", config.clientId);
   const clientSecret = await promptPassword("WHOOP Client Secret", config.clientSecret);
   const redirectUri = await promptVisible("WHOOP Redirect URI", config.redirectUri);
+  const tokenDir = await promptVisible("Token cache folder", config.tokenDir);
+  const scopes = await promptVisible("OAuth scopes", config.scopes.join(" "));
+  const parsedScopes = scopes.split(/[,\s]+/).map((scope) => scope.trim()).filter(Boolean);
 
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error("WHOOP Client ID, Client Secret, and Redirect URI are required.");
+  if (!clientId || !clientSecret || !redirectUri || !tokenDir || parsedScopes.length === 0) {
+    throw new Error("WHOOP Client ID, Client Secret, Redirect URI, token folder, and scopes are required.");
   }
 
   const state = crypto.randomBytes(4).toString("hex");
-  const authorizeUrl = buildAuthorizeUrl(clientId, redirectUri, config.scopes, state);
+  const authorizeUrl = buildAuthorizeUrl(clientId, redirectUri, parsedScopes, state);
 
   console.log("");
   console.log("Opening WHOOP authorization page.");
@@ -227,11 +273,24 @@ async function main(): Promise<void> {
     redirect_uri: redirectUri,
   });
 
-  const tokenPath = writeTokens(config.tokenDir, tokens);
+  const tokenPath = writeTokens(path.resolve(tokenDir), tokens);
+  const shouldWriteEnv = await promptYesNo("Save these settings to a local .env file for MCP token refresh?", true);
+  const envPath = shouldWriteEnv
+    ? writeLocalEnv({
+        WHOOP_CLIENT_ID: clientId,
+        WHOOP_CLIENT_SECRET: clientSecret,
+        WHOOP_REDIRECT_URI: redirectUri,
+        WHOOP_TOKEN_DIR: path.resolve(tokenDir),
+        WHOOP_SCOPES: parsedScopes.join(" "),
+      })
+    : null;
 
   console.log("");
-  console.log("Login successful.");
+  console.log("WHOOP setup successful.");
   console.log(`Token cache written to ${tokenPath}.`);
+  if (envPath) {
+    console.log(`Local MCP settings written to ${envPath}.`);
+  }
   console.log("You can now use the WHOOP MCP server without repeating OAuth in the browser.");
 }
 
